@@ -25,6 +25,51 @@ void add_history(char* unused) {}
 #include <editline/history.h>
 #endif
 
+
+long eval_op(long x, char* op, long y) {
+	if(strcmp(op, "+") == 0) { return x + y; }
+	if(strcmp(op, "-") == 0) { return x - y; }
+	if(strcmp(op, "*") == 0) { return x * y; }
+	if(strcmp(op, "/") == 0) { return x / y; }
+	return 0;
+}
+
+long eval(mpc_ast_t* t) {
+	if(strstr(t->tag, "number")) {
+		return atoi(t->contents);
+	}
+
+	char* op = t->children[1]->contents;
+
+	long x = eval(t->children[2]);
+
+	int i = 3;
+
+	while(strstr(t->children[i]->tag, "expr")) {
+		x = eval_op(x, op, eval(t->children[i]));
+		i++;
+	}
+
+
+	return x;
+}
+
+int calculate_leaves(mpc_ast_t* t) {
+
+	if(strstr(t->tag, "number")) {
+		return 1;
+	}
+
+
+	int sum_of_nodes = 0;
+
+	for(int i = 0; i < t->children_num; i++) {
+		sum_of_nodes += calculate_leaves(t->children[i]);
+	}
+
+	return sum_of_nodes;
+}
+
 int main(int argc, char** argv) {
 	mpc_parser_t* Number = mpc_new("number");
 	mpc_parser_t* Operator = mpc_new("operator");
@@ -35,7 +80,7 @@ int main(int argc, char** argv) {
 	mpca_lang(MPCA_LANG_DEFAULT,
 			"	\
 			number : /-?[0-9]+/ ; \
-			operator : '+' | '-' | '*' | '/' ; \
+			operator : '+' | '-' | '*' | '/' | '%' ; \
 			expr : <number> | '(' <operator> <expr>+ ')' ; \
 			lispy : /^/ <operator> <expr>+ /$/ ; \
 			",
@@ -44,14 +89,21 @@ int main(int argc, char** argv) {
 
 
 	while(1) {
-		char* input = readline("lispy > ");
+		char* input = readline("lispy> ");
 
 		add_history(input);
 
 		mpc_result_t r;
-
+		// mpc_ast_t* ast = r.output;
 		if(mpc_parse("<stdin>", input, Lispy, &r)) {
-			mpc_ast_print(r.output);
+			// mpc_ast_print(r.output);
+			// mpc_ast_delete(r.output);
+
+			long result = eval(r.output);
+			int num_of_leaves = calculate_leaves(r.output);
+			printf("%li\n", result);
+
+			printf("%i\n", num_of_leaves);
 			mpc_ast_delete(r.output);
 		} else  {
 			mpc_err_print(r.error);
