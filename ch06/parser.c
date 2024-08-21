@@ -31,6 +31,8 @@ long eval_op(long x, char* op, long y) {
 	if(strcmp(op, "-") == 0) { return x - y; }
 	if(strcmp(op, "*") == 0) { return x * y; }
 	if(strcmp(op, "/") == 0) { return x / y; }
+	if(strcmp(op, "%") == 0) { return x % y; }	
+	if(strcmp(op, "^") == 0) { return (int)pow(x,y); }
 	return 0;
 }
 
@@ -70,6 +72,23 @@ int calculate_leaves(mpc_ast_t* t) {
 	return sum_of_nodes;
 }
 
+int calculate_children(mpc_ast_t* t) {
+	if(t->children_num == 0) {
+		return 1;
+	}
+
+	int max_depth = 0;
+
+	for(int i = 0; i < t->children_num; i++) {
+		int depth = calculate_children(t->children[i]);
+		if(depth > max_depth) {
+			max_depth = depth;
+		}	
+	}
+	
+	return max_depth + 1;
+}
+
 int main(int argc, char** argv) {
 	mpc_parser_t* Number = mpc_new("number");
 	mpc_parser_t* Operator = mpc_new("operator");
@@ -80,8 +99,8 @@ int main(int argc, char** argv) {
 	mpca_lang(MPCA_LANG_DEFAULT,
 			"	\
 			number : /-?[0-9]+/ ; \
-			operator : '+' | '-' | '*' | '/' | '%' ; \
-			expr : <number> | '(' <operator> <expr>+ ')' ; \
+			operator : '+' | '-' | '*' | '/' | '%' | '^' ; \
+			expr : <number> | '(' <operator> <expr>+ ')'  ; \
 			lispy : /^/ <operator> <expr>+ /$/ ; \
 			",
 
@@ -100,10 +119,12 @@ int main(int argc, char** argv) {
 			// mpc_ast_delete(r.output);
 
 			long result = eval(r.output);
-			int num_of_leaves = calculate_leaves(r.output);
-			printf("%li\n", result);
+			// int num_of_leaves = calculate_leaves(r.output);
+			// int  most_children = calculate_children(r.output);
 
-			printf("%i\n", num_of_leaves);
+			printf("%li\n", result);
+			//printf("%i\n", num_of_leaves);
+			//printf("%i\n", most_children);
 			mpc_ast_delete(r.output);
 		} else  {
 			mpc_err_print(r.error);
