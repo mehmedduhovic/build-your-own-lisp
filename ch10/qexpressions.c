@@ -24,7 +24,7 @@ void add_history(char* unused) {}
 
 
 /* Enumeration of lval Types */
-enum { LVAL_NUM, LVAL_ERR, LVAL_SYM, LVAL_SEXPR, LVAL_QEXPR };
+enum { LVAL_ERR, LVAL_NUM, LVAL_SYM, LVAL_SEXPR, LVAL_QEXPR };
 
 typedef struct lval {
 	int type;
@@ -94,6 +94,14 @@ void lval_del(lval* v) {
 	free(v);
 }
 
+
+lval* lval_add(lval* v, lval* x) {
+	v->count++;
+	v->cell = realloc(v->cell, sizeof(lval*) * v->count);
+	v->cell[v->count-1] = x;
+	return v;
+}
+
 lval* lval_pop(lval* v, int i) {
 	lval* x = v->cell[i];
 
@@ -105,11 +113,13 @@ lval* lval_pop(lval* v, int i) {
 	return x;
 }
 
-lval* lval_add(lval* v, lval* x) {
-	v->count++;
-	v->cell = realloc(v->cell, sizeof(lval *) * v->count);
-	v->cell[v->count-1] = x;
-	return v;
+lval* lval_join(lval* x, lval* y) {
+	while(y->count) {
+		x= lval_add(x, lval_pop(y, 0));
+	}
+
+	lval_del(y);
+	return x;
 }
 
 lval* lval_take(lval* v, int i) {
@@ -148,6 +158,13 @@ void lval_println(lval* v) {
 	putchar('\n');
 }
 
+
+lval* lval_eval(lval* v);
+
+lval* builtin_list(lval* a) {
+	a->type = LVAL_QEXPR;
+	return a;
+}
 
 lval* builtin_op(lval* a, char* op) {
 	for(int i = 0; i < a->count; i++) {
@@ -188,66 +205,10 @@ lval* builtin_op(lval* a, char* op) {
 	return x;
 }
 
-lval* lval_eval(lval* v);
-
-lval* lval_eval_sexpr(lval* v) {
-	for(int i = 0; i < v->count; i++) {
-		v->cell[i] = lval_eval(v->cell[i]); 
-	}
-
-	for(int i = 0; i < v->count; i++) {
-		if(v->cell[i]->type == LVAL_ERR) {
-			return lval_take(v, i);
-		}
-	}
-
-	if(v->count == 0) { return v; }
-
-	if(v->count == 1) { return lval_take(v, 0); }
-
-	lval* f = lval_pop(v, 0);
-	if(f->type != LVAL_SYM) {
-		lval_del(f);
-		lval_del(v);
-
-		return lval_err("S-Expression doesn't start with symbol!");
-	}
-
-	lval* result = builtin_op(v, f->sym);
-	return result;
-}
-
-lval* lval_eval(lval* v) {
-	if(v->type == LVAL_SEXPR) { return lval_eval_sexpr(v); }
-
-	return v;
-}
-
 lval* lval_read_num(mpc_ast_t* t) {
 	errno = 0;
 	long x = strtol(t->contents, NULL, 10);
 	return errno != ERANGE ? lval_num(x) : lval_err("invalid number");	
-}
-
-lval* lval_read(mpc_ast_t* t) {
-	if(strstr(t->tag, "number")) { return lval_read_num(t); };
-	if(strstr(t->tag, "symbol")) { return lval_sym(t->contents); };
-
-	lval* x = NULL;
-	if(strcmp(t->tag, ">") == 0) { x = lval_sexpr(); }
-	if(strstr(t->tag, "sexpr")) { x = lval_sexpr(); }	
-	if(strstr(t->tag, "qexpr")) { x = lval_qexpr(); }
-
-	for(int i = 0; i < t->children_num; i++) {
-		if(strcmp(t->children[i]->contents, "(") == 0) { continue; }
-		if(strcmp(t->children[i]->contents, ")") == 0) { continue; }
-		if(strcmp(t->children[i]->contents, "{") == 0) { continue; }
-		if(strcmp(t->children[i]->contents, "}") == 0) { continue; }
-		if(strcmp(t->children[i]->tag, "regex") == 0) { continue; }
-		x = lval_add(x, lval_read(t->children[i]));
-	}
-
-	return x;
 }
 
 lval* builtin_head(lval* a) {
@@ -276,18 +237,13 @@ lval* builtin_tail(lval* a) {
 
 }
 
-lval* builtin_list(lval* a) {
-	a->type = LVAL_QEXPR;
-	return a;
-}
-
-lval builtin_eval(lval* a) {
+lval* builtin_eval(lval* a) {
 	LASSERT(a, a->count == 1, "Error 'eval': Too many arguments");
 	LASSERT(a, a->cell[0]->type == LVAL_QEXPR, "Error 'eval': Incorrect Type passed");
 
 	lval* x = lval_take(a, 0);
 	x->type = LVAL_SEXPR;
-	return x;
+	return lval_eval(x);
 }
 
 lval* builtin_join(lval* a) {
@@ -305,12 +261,72 @@ lval* builtin_join(lval* a) {
 	return x;
 }
 
-lval* lval_join(lval* x, lval* y) {
-	while(y->count) {
-		x= lval_add(x, lval_pop(y, 0));
+lval* builtin(lval* a, char* func) {
+	if(strcmp("list", func) == 0) { return builtin_list(a); }
+	if(strcmp("head", func) == 0) { return builtin_head(a); }
+	if(strcmp("tail", func) == 0) { return builtin_tail(a); }
+	if(strcmp("join", func) == 0) { return builtin_join(a); }
+	if(strcmp("eval", func) == 0) { return builtin_eval(a); }
+	if(strstr("+-/*", func)) { return builtin_op(a, func); }
+
+	lval_del(a);
+	return lval_err("Unknown Function!");
+}
+
+lval* lval_eval_sexpr(lval* v) {
+	for(int i = 0; i < v->count; i++) {
+		v->cell[i] = lval_eval(v->cell[i]); 
 	}
 
-	lval_del(y);
+	for(int i = 0; i < v->count; i++) {
+		if(v->cell[i]->type == LVAL_ERR) {
+			return lval_take(v, i);
+		}
+	}
+
+	if(v->count == 0) { return v; }
+
+	if(v->count == 1) { return lval_take(v, 0); }
+
+	lval* f = lval_pop(v, 0);
+	if(f->type != LVAL_SYM) {
+		lval_del(f);
+		lval_del(v);
+
+		return lval_err("S-Expression doesn't start with symbol!");
+	}
+
+	lval* result = builtin(v, f->sym);
+	lval_del(f);
+	return result;
+}
+
+lval* lval_eval(lval* v) {
+	if(v->type == LVAL_SEXPR) { 
+		return lval_eval_sexpr(v);
+       	}
+
+	return v;
+}
+
+lval* lval_read(mpc_ast_t* t) {
+	if(strstr(t->tag, "number")) { return lval_read_num(t); };
+	if(strstr(t->tag, "symbol")) { return lval_sym(t->contents); };
+
+	lval* x = NULL;
+	if(strcmp(t->tag, ">") == 0) { x = lval_sexpr(); }
+	if(strstr(t->tag, "sexpr")) { x = lval_sexpr(); }	
+	if(strstr(t->tag, "qexpr")) { x = lval_qexpr(); }
+
+	for(int i = 0; i < t->children_num; i++) {
+		if(strcmp(t->children[i]->contents, "(") == 0) { continue; }
+		if(strcmp(t->children[i]->contents, ")") == 0) { continue; }
+		if(strcmp(t->children[i]->contents, "{") == 0) { continue; }
+		if(strcmp(t->children[i]->contents, "}") == 0) { continue; }
+		if(strcmp(t->children[i]->tag, "regex") == 0) { continue; }
+		x = lval_add(x, lval_read(t->children[i]));
+	}
+
 	return x;
 }
 
