@@ -47,6 +47,13 @@ struct lval {
 	lval** cell;
 };
 
+struct lenv {
+	int count;
+	char** syms;
+	lval** vals;
+};
+
+/* LVAL Methods */
 lval* lval_num(long x) {
 	lval* v = malloc(sizeof(lval));
 	v->type = LVAL_NUM;
@@ -362,7 +369,7 @@ lval* builtin(lval* a, char* func) {
 	return lval_err("Unknown Function!");
 }
 
-lval* lval_eval_sexpr(lval* v) {
+lval* lval_eval_sexpr(lenv* e, lval* v) {
 	for(int i = 0; i < v->count; i++) {
 		v->cell[i] = lval_eval(v->cell[i]); 
 	}
@@ -378,22 +385,28 @@ lval* lval_eval_sexpr(lval* v) {
 	if(v->count == 1) { return lval_take(v, 0); }
 
 	lval* f = lval_pop(v, 0);
-	if(f->type != LVAL_SYM) {
+	if(f->type != LVAL_FUN) {
 		lval_del(f);
 		lval_del(v);
 
-		return lval_err("S-Expression doesn't start with symbol!");
+		return lval_err("First element is not a function");
 	}
 
-	lval* result = builtin(v, f->sym);
+	lval* result = f->fun(e, v);
 	lval_del(f);
 	return result;
 }
 
-lval* lval_eval(lval* v) {
-	if(v->type == LVAL_SEXPR) { 
-		return lval_eval_sexpr(v);
-       	}
+lval* lval_eval(lenv* e, lval* v) {
+	if(v->type == LVAL_SYM) {
+		lval* x = lenv_get(e, v);
+		lval_del(v);
+		return x;
+	}
+
+	if(v->type == LVAL_SEXPR) {
+	       	return lval_eval_sexpr(e, v);
+	}
 
 	return v;
 }
@@ -445,6 +458,59 @@ lval* lval_read(mpc_ast_t* t) {
 	}
 
 	return x;
+}
+
+/* LENV Methods */
+lenv* lenv_new(void) {
+	lenv* e = malloc(sizeof(lenv));
+	e->count = 0;
+	e->syms = NULL;
+	e->vals = NULL;
+	return e;
+}
+
+void lenv_del(lenv* e) {
+	for(int i = 0; i < e->count; i++) {
+		free(e->syms[i]);
+		lval_del(e->vals[i]);
+	}
+
+	free(e->syms);
+	free(e->vals);
+	free(e);
+
+	free(e->syms);
+	free(e->vals);
+	free(e);
+}
+
+lval* lenv_get(lenv* e, lval* k) {
+	for(int i = 0; i < e->count; i++) {
+		if(strcmp(k->sym, e->syms[i]) == 0) {
+			return lval_copy(e->vals[i]);
+					
+		}
+	}
+
+	return lval_err("Symbol not found!");
+}
+
+void lenv_put(lenv* e, lval* k, lval* v) {
+	for(int i = 0; i < e->count; i++) {
+		if(strcmp(k->sym, e->syms[i]) == 0) {
+			lval_del(e->vals[i]);
+			e->vals[i] = lval_copy(v);
+			return;
+		}
+	}
+
+	e->count++;
+	e->vals = realloc(e->vals, sizeof(lval*) * e->count);
+	e->syms = realloc(e->syms, sizeof(char*) * e->count);
+
+	e->vals[e->count-1] = lval_copy(v);
+	e->syms[e->count-1] = malloc(strlen(k->sym) + 1);
+	strcpy(e->syms[e->count-1], k->sym);
 }
 
 int main(int argc, char** argv) {
