@@ -4,9 +4,24 @@
 	if(!(cond)) { \
 		lval* err = lval_err(fmt, ##__VA_ARGS__); \
 		lval_del(args); \
-		return err;\
+		return err; \
 	}
 
+
+#define LASSERT_TYPE(args, element, expected, function) \
+	LASSERT(args, element == expected, \
+		"TYPE ERROR '%s': Got %s, expected %s.", \
+		function, ltype_name(element), ltype_name(expected));		
+
+#define LASSERT_COUNT(args, num, function) \
+	LASSERT(args, args->count == num, \
+		"ARG COUNT ERROR '%s': Got %i, expected %i.", \
+		function, args->count, num);
+
+#define LASSERT_NOT_EMPTY(args, length, function) \
+	LASSERT(args, length != 0, \
+		"EMPTY ERROR '%s': Passed an empty object.", \
+		function);
 
 #ifdef _WIN32
 static char buffer[2048];
@@ -183,7 +198,7 @@ void lval_expr_print(lval* v, char open, char close) {
 void lval_print(lval* v) {
 	switch(v->type) {
 		case LVAL_NUM: printf("%li", v->num); break;
-		case LVAL_ERR: printf("Error: %s", v->err); break;
+		case LVAL_ERR: printf("%s", v->err); break;
 		case LVAL_SYM: printf("%s", v->sym); break;
 		case LVAL_SEXPR: lval_expr_print(v, '(', ')'); break;
 		case LVAL_QEXPR: lval_expr_print(v, '{', '}'); break;
@@ -192,40 +207,40 @@ void lval_print(lval* v) {
 }
 
 lval* lval_copy(lval* v) {
-	lval* x = malloc(sizeof(lval));
-	x->type = v->type;
+lval* x = malloc(sizeof(lval));
+x->type = v->type;
 
-	switch(v->type) {
-		case LVAL_FUN: x->fun = v->fun; break;
-		case LVAL_NUM: x->num = v->num; break;
+switch(v->type) {
+	case LVAL_FUN: x->fun = v->fun; break;
+	case LVAL_NUM: x->num = v->num; break;
 
-		case LVAL_ERR: 
-			       x->err = malloc(strlen(v->err) + 1 );
-			       strcpy(x->err, v->err);
-			       break;
+	case LVAL_ERR: 
+		       x->err = malloc(strlen(v->err) + 1 );
+		       strcpy(x->err, v->err);
+		       break;
 
-		case LVAL_SYM: 
-			       x->sym = malloc(strlen(v->err) + 1 );
-			       strcpy(x->sym, v->sym);
-			       break;
+	case LVAL_SYM: 
+		       x->sym = malloc(strlen(v->err) + 1 );
+		       strcpy(x->sym, v->sym);
+		       break;
 
-		case LVAL_SEXPR:
-		case LVAL_QEXPR:
-			       x->count = v->count;
-			       x->cell = malloc(sizeof(lval*) * x->count);
+	case LVAL_SEXPR:
+	case LVAL_QEXPR:
+		       x->count = v->count;
+		       x->cell = malloc(sizeof(lval*) * x->count);
 
-			       for(int i = 0; i < x->count; i++) {
-			       	x->cell[i] = lval_copy(v->cell[i]);
-			       }
-			       break;
-	}
+		       for(int i = 0; i < x->count; i++) {
+			x->cell[i] = lval_copy(v->cell[i]);
+		       }
+		       break;
+}
 
-	return x;
+return x;
 }
 
 void lval_println(lval* v) {
-	lval_print(v);
-	putchar('\n');
+lval_print(v);
+putchar('\n');
 }
 
 lval* lval_eval(lenv* e, lval* v);
@@ -235,81 +250,75 @@ lval* builtin_def(lenv* e, lval* a);
 char* ltype_name(int t);
 
 lval* builtin_list(lenv* e, lval* a) {
-	a->type = LVAL_QEXPR;
-	return a;
+a->type = LVAL_QEXPR;
+return a;
 }
 
 lval* builtin_op(lenv* e, lval* a, char* op) {
-	for(int i = 0; i < a->count; i++) {
-		if(a->cell[i]->type != LVAL_NUM) {
-			lval* err = lval_err("Cannot operate on non-number! Got %s, expected %s", 
-				ltype_name(a->cell[i]->type), ltype_name(LVAL_NUM));
-			lval_del(a);
-			return err;
-		}
+for(int i = 0; i < a->count; i++) {
+	if(a->cell[i]->type != LVAL_NUM) {
+		lval* err = lval_err("Cannot operate on non-number! Got %s, expected %s", 
+			ltype_name(a->cell[i]->type), ltype_name(LVAL_NUM));
+		lval_del(a);
+		return err;
 	}
+}
 
-	lval* x = lval_pop(a, 0);
+lval* x = lval_pop(a, 0);
 
-	if((strcmp(op, "-") == 0) && a->count == 0) {
-		x->num = -x->num;
-	}
+if((strcmp(op, "-") == 0) && a->count == 0) {
+	x->num = -x->num;
+}
 
-	while(a->count > 0) {
-		lval* y = lval_pop(a, 0);
-		
-		if(strcmp(op, "+") == 0) { x->num += y->num; }
-		if(strcmp(op, "-") == 0) { x->num -= y->num; }
-		if(strcmp(op, "*") == 0) { x->num *= y->num; }
-		if(strcmp(op, "/") == 0) {
-			if(y->num == 0) {
-				lval_del(x);
-				lval_del(y);
-				x = lval_err("Division by zero!");
-				break;
-			}
-
-			x->num /= y->num;
+while(a->count > 0) {
+	lval* y = lval_pop(a, 0);
+	
+	if(strcmp(op, "+") == 0) { x->num += y->num; }
+	if(strcmp(op, "-") == 0) { x->num -= y->num; }
+	if(strcmp(op, "*") == 0) { x->num *= y->num; }
+	if(strcmp(op, "/") == 0) {
+		if(y->num == 0) {
+			lval_del(x);
+			lval_del(y);
+			x = lval_err("Division by zero!");
+			break;
 		}
 
-		lval_del(y);
-
+		x->num /= y->num;
 	}
 
-	lval_del(a);
-	return x;
+	lval_del(y);
+
+}
+
+lval_del(a);
+return x;
 }
 
 lval* lval_read_num(mpc_ast_t* t) {
-	errno = 0;
-	long x = strtol(t->contents, NULL, 10);
-	return errno != ERANGE ? lval_num(x) : lval_err("invalid number");	
+errno = 0;
+long x = strtol(t->contents, NULL, 10);
+return errno != ERANGE ? lval_num(x) : lval_err("invalid number");	
 }
 
 lval* builtin_head(lenv* e, lval* a) {
-	LASSERT(a, a->count == 1, 
-		"Error 'head': Too many arguments. Got %i, expected %i.", a->count, 1);
-	LASSERT(a, a->cell[0]->type == LVAL_QEXPR, 
-		"Error 'head': Incorrect Type passed. Got %s", ltype_name(a->cell[0]->type));
-	LASSERT(a, a->cell[0]->count != 0, 
-		"Error 'head': Passed an empty object {}");
+LASSERT_COUNT(a, 1, "head");
+LASSERT_TYPE(a, a->cell[0]->type, LVAL_QEXPR, "head");
+LASSERT_NOT_EMPTY(a, a->cell[0]->count, "head");
 
-	lval* v = lval_take(a, 0);
-	while (v->count > 1) {
-		lval_del(lval_pop(v, 1));
-	}
+lval* v = lval_take(a, 0);
+while (v->count > 1) {
+	lval_del(lval_pop(v, 1));
+}
 
 
-	return v;
+return v;
 }
 
 lval* builtin_tail(lenv* e, lval* a) {
-	LASSERT(a, a->count == 1, 
-		"Error 'tail': Too many arguments. Got %i, expected %i.", a->count, 1);
-	LASSERT(a, a->cell[0]->type == LVAL_QEXPR, 
-		"Error 'tail': Incorrect Type passed. Got %s", ltype_name(a->cell[0]->type));
-	LASSERT(a, a->cell[0]->count != 0, 
-		"Error 'tail': Passed an empty object {}");
+LASSERT_COUNT(a, 1, "tail");
+LASSERT_TYPE(a, a->cell[0]->type, LVAL_QEXPR, "tail");
+LASSERT_NOT_EMPTY(a, a->cell[0]->count, "tail");
 
 	lval* v = lval_take(a, 0);
 	lval_del(lval_pop(v, 0));
@@ -328,8 +337,7 @@ lval* builtin_len(lenv* e, lval* a) {
 }
 
 lval* builtin_init(lenv* e, lval* a) {
-        LASSERT(a, a->cell[0]->type == LVAL_QEXPR, 
-		"Error 'len': The argument is not a Q-Expressions. Got %s", ltype_name(a->cell[0]->type));
+	LASSERT_TYPE(a, a->cell[0]->type, LVAL_QEXPR, "init");
 	lval* qexpr = a->cell[0];
 	lval* popped = lval_pop(qexpr, 0);
 	lval_del(popped);
@@ -339,10 +347,8 @@ lval* builtin_init(lenv* e, lval* a) {
 lval* builtin_cons(lenv* e, lval* a) {
 	LASSERT(a, a->count == 2, 
 		"Error 'cons': Incorrect no of arguments. Expected %i, got %i", 2, a->count);
-	LASSERT(a, a->cell[0]->type == LVAL_NUM, 
-		"Error 'cons': The first argument is not a number! Got %s", ltype_name(a->cell[0]->type));
-       	LASSERT(a, a->cell[1]->type == LVAL_QEXPR, 
-		"Error 'cons': The second argument is not a Q-Expression. Got %s", ltype_name(a->cell[1]->type)); 	
+	LASSERT_TYPE(a, a->cell[0]->type, LVAL_NUM, "cons");
+	LASSERT_TYPE(a, a->cell[1]->type, LVAL_QEXPR, "cons");
 
 	lval* x = lval_qexpr();
 	lval* num = a->cell[0];
@@ -372,9 +378,7 @@ lval* builtin_eval(lenv* e, lval* a) {
 
 lval* builtin_join(lenv* e, lval* a) {
 	for(int i=0; i < a->count; i++) {
-		LASSERT(a, a->cell[i]->type == LVAL_QEXPR, 
-			"Error 'join': Incorrect Type passed. Expected %s, got %s",		
-			ltype_name(LVAL_QEXPR), ltype_name(a->cell[i]->type));
+		LASSERT_TYPE(a, a->cell[i]->type, LVAL_QEXPR, "join");
 	}
 
 	lval* x = lval_pop(a, 0);
