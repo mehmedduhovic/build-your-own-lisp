@@ -615,7 +615,9 @@ lval* lval_call(lenv* e, lval* f, lval* a) {
 		return f->builtin(e, a);
 	}
 
+	/* list of variable values e.g. 10, 20 */
 	int given = a->count;
+	/* list of formal names e.g. x, y */
 	int total = f->formals->count;
 	
 	while(a->count) {
@@ -627,6 +629,20 @@ lval* lval_call(lenv* e, lval* f, lval* a) {
 
 		
 		lval* sym = lval_pop(f->formals, 0);
+
+		if(strcmp(sym->sym, "&") == 0) {
+			if(f->formals->count != 1) {
+				lval_del(a);
+				return lval_err("Symbol '&' not followed by a single symbol");
+			}
+
+			lval* variable_arg =lval_pop(f->formals, 0);
+			lenv_put(f->env, variable_arg, builtin_list(e, a));
+			lval_del(sym);
+			lval_del(variable_arg);
+			break;
+		}
+
 		lval* val = lval_pop(a, 0);
 
 		lenv_put(f->env, sym, val);
@@ -636,6 +652,22 @@ lval* lval_call(lenv* e, lval* f, lval* a) {
 	}
 
 	lval_del(a);
+
+	if(f->formals->count > 0 && strcmp(f->formals->cell[0]->sym, "&") == 0) {
+		if(f->formals->count != 2) {
+			return lval_err("Symbol '&' not followed by a single symbol.");
+		}
+
+		lval_del(lval_pop(f->formals, 0));
+
+		lval* sym = lval_pop(f->formals, 0);
+		lval* val = lval_qexpr();
+
+		lenv_put(f->env, sym, val);
+		lval_del(sym);
+		lval_del(val);
+	}
+
 	if(f->formals->count == 0) {
 		f->env->par = e;
 		
